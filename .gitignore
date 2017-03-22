@@ -1,0 +1,8 @@
+.DS_Store
+music_emotions_intel/resources/audio_db/
+music_emotions_intel/resources/clips_45seconds/
+__pycache__/
+jupyter-notebook/.ipynb_checkpoints/
+jupyter-notebook/__pycache__/
+musics.tar.gz
+.idea/
