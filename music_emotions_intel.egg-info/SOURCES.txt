@@ -1,0 +1,7 @@
+setup.cfg
+setup.py
+music_emotions_intel.egg-info/PKG-INFO
+music_emotions_intel.egg-info/SOURCES.txt
+music_emotions_intel.egg-info/dependency_links.txt
+music_emotions_intel.egg-info/requires.txt
+music_emotions_intel.egg-info/top_level.txt

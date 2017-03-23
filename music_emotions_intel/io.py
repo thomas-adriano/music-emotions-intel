@@ -10,7 +10,7 @@ from os.path import join
 from sys import getsizeof, stderr
 
 import audioread
-import librosa as lr
+import librosa
 import pandas as pd
 
 from music_emotions_intel import paths
@@ -38,7 +38,7 @@ def load_audio_from_dir(path, duration=None, sr=DEFAULT_SAMPLING_RATE, mono=True
 
 def load_audio(path, duration=None, sr=DEFAULT_SAMPLING_RATE, mono=True):
     log.debug('Loading audio time series from path %s' % path)
-    y, sr = lr.load(path, sr=sr, mono=mono, duration=duration)
+    y, sr = librosa.load(path, sr=sr, mono=mono, duration=duration)
     log.debug('Audio time series successfully loaded')
     return y, sr
 
@@ -60,10 +60,9 @@ def create_optimized_audio_data_file(audio_files, duration=None, sr=DEFAULT_SAMP
     data = {}
     start_time = time.time()
     c2 = 0
-    size_threshold = 1500000000
+    size_threshold_bytes = 1500000000  # 1.5gb
     i = 0
     for f in audio_files:
-        # y, sr = []
         try:
             y, sr = load_audio(f, duration, sr, mono)
         except audioread.NoBackendError as e:
@@ -76,7 +75,8 @@ def create_optimized_audio_data_file(audio_files, duration=None, sr=DEFAULT_SAMP
         fname = AUDIO_DATA_NAME + '_' + str(c2)
         dest = join(audio_db_dir, fname)
         i += 1
-        if (total_size(data) >= size_threshold) or (len(audio_files) - 1 == i):
+        # workaround to MACOSX problems regarding pickling files above 1.5gb
+        if (total_size(data) >= size_threshold_bytes) or (len(audio_files) - 1 == i):
             with open(dest, 'w+b') as handle:
                 c2 += 1
                 log.debug('Writing audio db file %s' % dest)
