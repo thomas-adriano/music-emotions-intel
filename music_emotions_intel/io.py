@@ -1,13 +1,15 @@
 import logging as log
 import os
 import pickle
+import tarfile
 import time
 from collections import deque
 from genericpath import isfile
 from itertools import chain
 from os.path import join
 from sys import getsizeof, stderr
-import tarfile
+
+import audioread
 import librosa as lr
 import pandas as pd
 
@@ -61,7 +63,13 @@ def create_optimized_audio_data_file(audio_files, duration=None, sr=DEFAULT_SAMP
     size_threshold = 1500000000
     i = 0
     for f in audio_files:
-        y, sr = load_audio(f, duration, sr, mono)
+        # y, sr = []
+        try:
+            y, sr = load_audio(f, duration, sr, mono)
+        except audioread.NoBackendError as e:
+            log.warning('Impossible to load file %s as audio time series' % f)
+            log.warning(e)
+            continue
         id_ = get_filename(f)
         ad = Audio_Data(id_, y, sr)
         data[id_] = ad
@@ -96,7 +104,7 @@ def load_optimized_audio_data_file(audio_db_dir=paths.DEFAULT_AUDIO_DB_DIR):
                 data.update(d)
                 handle.close()
                 elapsed_time = time.time() - start_time
-                log.info('Optimized audio data file successfully loaded in %d seconds' % (elapsed_time / 1000))
+                log.info('Optimized audio data file successfully loaded in %d seconds' % elapsed_time)
             except (EOFError, IOError) as e:
                 log.error('Could not load file %s' % src)
                 log.error(e)

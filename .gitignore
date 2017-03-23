@@ -5,4 +5,5 @@ __pycache__/
 jupyter-notebook/.ipynb_checkpoints/
 jupyter-notebook/__pycache__/
 musics.tar.gz
+musics.tar
 .idea/
