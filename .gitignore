@@ -1,4 +1,5 @@
 .DS_Store
+music_emotions_intel/cache/
 music_emotions_intel/resources/audio_db/
 music_emotions_intel/resources/clips_45seconds/
 __pycache__/

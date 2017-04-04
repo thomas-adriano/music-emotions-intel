@@ -5,32 +5,35 @@ import numpy as np
 import pandas as pd
 import sklearn
 
+import music_emotions_intel.cache
 from music_emotions_intel import io
-from music_emotions_intel import paths
+from music_emotions_intel import configs
 from music_emotions_intel import progress_bar
 
 
-def transform_features(sr=io.DEFAULT_SAMPLING_RATE):
-    # print('extracting features...')
-    res = np.array([])
+def create_X(audio_db_dir=configs.CACHE_AUDIO_CLIPS, sr=configs.DEFAULT_SAMPLING_RATE):
+    print('extracting features...')
+    res = []
     song_ids = []
     i = 0
-    for (y, sr), dir_, name in io.load_audio_from_dir(paths.AUDIO_CLIPS_PATH, sr=sr, duration=45):
-        # print('file', f)
-        progress_bar.print_progressbar(i, len(y), prefix='Progress:', suffix='Complete', bottom=name,
+    audio_data = music_emotions_intel.cache.load_audio_files_cache(audio_db_dir)
+    cols = []
+    for id_ in audio_data:
+        audio_time_series = audio_data[id_].audio_time_series
+        sr = audio_data[id_].sr
+        tempo_ = audio_data[id_].tempo
+        progress_bar.print_progressbar(i, len(audio_data), prefix='Progress:', suffix='Complete', bottom=id_,
                                        bar_length=50)
-        song_ids.append(name)
-        mfcc, mfcc_cols = extract_mfcc(y, name, sr)
-        mfcc = transform_mfcc(mfcc)
-        cols = np.array([])
-        mfcc_cols = ['mfcc_' + str(x) for x in range(len(mfcc))]
-        cols = np.concatenate((cols, mfcc_cols))
-        res = np.concatenate((res, mfcc))
 
-        tempo_ = tempo(y, sr)
-        cols = np.append(cols, 'tempo')
-        res = np.append(res, tempo_)
+        y, mfcc_cols = extract_mfcc(audio_time_series, id_, sr)
+        y = transform_mfcc(y)
+        cols = ['mfcc_' + str(x) for x in range(len(y))]
 
+        cols.append('tempo')
+        y.append(tempo_)
+        song_ids.append(id_)
+
+        res.append(y)
         i += 1
 
     res = pd.DataFrame(res, columns=cols, index=song_ids)
@@ -45,10 +48,10 @@ def transform_mfcc(mfcc):
     mfcc = sklearn.decomposition.PCA(n_components=90).fit_transform(mfcc)
     # transform to 1d array
     mfcc = mfcc.ravel()
-    return mfcc
+    return mfcc.tolist()
 
 
-def extract_mfcc(y, name, sr=io.DEFAULT_SAMPLING_RATE):
+def extract_mfcc(y, name, sr=configs.DEFAULT_SAMPLING_RATE):
     """
     Compute the mel-frequency cepstral coefficients
     """
@@ -63,7 +66,7 @@ def tempo(y, sr):
     return tempo
 
 
-def tempogram(y, name, sr=io.DEFAULT_SAMPLING_RATE):
+def tempogram(y, name, sr=configs.DEFAULT_SAMPLING_RATE):
     tempogram = lr.feature.tempogram(y=y, sr=sr)
     columns = ['tempogram_' + str(x) for x in range(len(tempogram[0]))]
     return pd.DataFrame(tempogram, columns=columns)
