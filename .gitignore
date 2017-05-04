@@ -1,5 +1,5 @@
 .DS_Store
-music_emotions_intel/cache/
+music_emotions_intel/cache_dir/
 music_emotions_intel/resources/audio_db/
 music_emotions_intel/resources/clips_45seconds/
 __pycache__/
@@ -8,3 +8,5 @@ jupyter-notebook/__pycache__/
 musics.tar.gz
 musics.tar
 .idea/
+db/
+start_postgresql.sh

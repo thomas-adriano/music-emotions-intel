@@ -1,124 +1,112 @@
 import logging as log
-import operator
-from optparse import OptionParser
 
-import numpy as np
 import pandas as pd
 from sklearn import svm
+from sklearn.model_selection import KFold
 
-from music_emotions_intel import feature_extraction as fe
-from music_emotions_intel import io
+from music_emotions_intel import utils, cache
+from music_emotions_intel.svmutil import *
 
-
-def load_data():
-    annotations = io.load_annotations()
-    attrs = fe.create_X()
-    X = attrs.values
-    return X, annotations
+utils.add_relative_file_path_to_sysenv(__file__)
 
 
-def _slice_by_percentage(listlike, percent, from_=0):
-    l = len(listlike)
-    split = round(((percent * l) / 100) + 0.001)  # 0.001 force middle values like 2.5 be upped rounded
-    if from_ != 0:
-        split += from_
-        if split > l:
-            split = l
-        return listlike[from_:split], _join_matrices(listlike[:from_], listlike[split:])
-    else:
-        return listlike[from_:split], listlike[split:l]
+def k_folds(X_df, y_df, folds=2):
+    """
+    Perform K folds in the provided X and y pandas dataframes
+    :param X_df: pandas dataframe audio features with columns (ID, ft_1, ...ft_n) where ID column is the dataframe's index col
+    :param y_df: pandas dataframe audio targets (valence and arousal) with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    :param folds: number of folds to perform
+    :return: numpy ndarray of each of the following: ids of the testing fold, X of the training fold, 
+    X of the test fold, y_valence of the training fold, y_arousal of the training fold,
+    y_valence of the test fold, y_arousal of the test fold
+    """
+    X = cache.Xdf_to_Xndarray(X_df)
+    y_valence, y_arousal = cache.ydf_to_yndarrays(y_df)
+    ids = cache.get_Xdf_or_ydf_ids(y_df)
+    kf = KFold(n_splits=folds)
+    for train_index, test_index in kf.split(X):
+        clf_valence = svm.SVR()
+        clf_arousal = svm.SVR()
+        yield ids[test_index], \
+              X[train_index], X[test_index], \
+              y_valence[train_index], y_arousal[train_index], \
+              y_valence[test_index], y_arousal[test_index]
 
 
-def _join_matrices(mat1, mat2):
-    mat1 = np.array(mat1)
-    mat2 = np.array(mat2)
-    return np.concatenate([mat1, mat2]).tolist()
+def train_classify(X_df, y_df, kfolds=5):
+    """
+    Train and classify using kfolds iteration and scikit learn svm.SVR algorithm
+    :param X_df: pandas dataframe audio features with columns (ID, ft_1, ...ft_n) where ID column is the dataframe's index col
+    :param y_df: pandas dataframe audio targets (valence and arousal) with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    :param kfolds: number of folds to perform the train/test
+    :return: pandas dataframe containing the predicted arousal and valence with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    """
+    df_list = []
+    for idx, X_train, X_test, y_train_valence, y_train_arousal, y_test_valence, y_test_arousal in k_folds(X_df, y_df,
+                                                                                                          kfolds):
+        clf_valence = svm.SVR()
+        clf_arousal = svm.SVR()
+        clf_valence.fit(X_train, y_train_valence)
+        clf_arousal.fit(X_train, y_train_arousal)
+
+        df = cache.create_yhat_df(idx, clf_valence.predict(X_test).ravel(), clf_arousal.predict(X_test).ravel())
+        df_list.append(df)
+    res = pd.concat(df_list)
+    return res
 
 
-def _index_for_composition(X, y_valence, y_arousal, percentage):
-    l = len(X)
-    i = round(l / ((percentage * l) / 100))
-    Xs = []
-    for ix in range(i):
-        if ix == 0:
-            prev_len = 0
-        else:
-            prev_len = len(Xs[0])
-        Xs = _slice_by_percentage(X, percentage, from_=operator.mul(ix, prev_len))
-        ys_valence = _slice_by_percentage(y_valence, percentage, from_=operator.mul(ix, prev_len))
-        ys_arousal = _slice_by_percentage(y_arousal, percentage, from_=operator.mul(ix, prev_len))
-        yield {'X_test': Xs[0],
-               'X_train': Xs[1],
-               'y_valence_test': ys_valence[0],
-               'y_valence_train': ys_valence[1],
-               'y_arousal_test': ys_arousal[0],
-               'y_arousal_train': ys_arousal[1]
-               }
+def train_classify_libsvm_svr(X_df, y_df, kfolds=5):
+    """
+    Train and classify using kfolds iteration and libsvm SVR
+    :param X_df: pandas dataframe audio features with columns (ID, ft_1, ...ft_n) where ID column is the dataframe's index col
+    :param y_df: pandas dataframe audio targets (valence and arousal) with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    :param kfolds: number of folds to perform the train/test
+    :return: pandas dataframe containing the predicted arousal and valence with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    """
+    df_list = []
+    for idx, X_train, X_test, y_train_valence, y_train_arousal, y_test_valence, y_test_arousal in k_folds(X_df, y_df,
+                                                                                                          kfolds):
+        clf_valence = svm_train(y_train_valence.tolist(), X_train.tolist(), '-s 3')
+        clf_arousal = svm_train(y_train_arousal.tolist(), X_train.tolist(), '-s 3')
+
+        p_label_valence, p_val_valence = svm_predict(X_test.tolist(), clf_valence)
+        p_label_arousal, p_val_arousal = svm_predict(X_test.tolist(), clf_arousal)
+
+        df = cache.create_yhat_df(idx, p_label_valence, p_label_arousal)
+        df_list.append(df)
+    res = pd.concat(df_list)
+    return res
 
 
-def train_classify(X, y_valence, y_arousal):
-    clf_valence = svm.SVR()
-    clf_arousal = svm.SVR()
-    y_hat_valence = []
-    y_hat_arousal = []
-    for val in _index_for_composition(X, y_valence, y_arousal, 25):
-        clf_valence.fit(val['X_train'], val['y_valence_train'])
-        y_hat_valence_part = clf_valence.predict(val['X_test']).tolist()
-        y_hat_valence = y_hat_valence + y_hat_valence_part
+def train_classify_tensorflow_nn(X_df, y_df, kfolds=5):
+    """
+    Train and classify using kfolds iteration and libsvm SVR
+    :param X_df: pandas dataframe audio features with columns (ID, ft_1, ...ft_n) where ID column is the dataframe's index col
+    :param y_df: pandas dataframe audio targets (valence and arousal) with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    :param kfolds: number of folds to perform the train/test
+    :return: pandas dataframe containing the predicted arousal and valence with columns (ID, VALENCE, AROUSAL) where ID column is the dataframe's index col
+    """
+    df_list = []
+    for idx, X_train, X_test, y_train_valence, y_train_arousal, y_test_valence, y_test_arousal in k_folds(X_df, y_df,
+                                                                                                          kfolds):
+        print('noop')
+    res = pd.concat(df_list)
+    return res
 
-        clf_arousal.fit(val['X_train'], val['y_arousal_train'])
-        y_hat_arousal_part = clf_arousal.predict(val['X_test']).tolist()
-        y_hat_arousal = y_hat_arousal + y_hat_arousal_part
-    return pd.DataFrame({'yhat_valence': y_hat_valence, 'yhat_arousal': y_hat_arousal})
+
+def train_using_cache():
+    log.info('running model training using cached data...')
+    X = cache.load_X_cache()
+    y = cache.load_y_cache()
+    print(train_classify(X, y))
+    print(train_classify_libsvm_svr(X, y))
+    log.info('training using cached data successfully finished!')
+
+
+def train():
+    log.info('running model training using source data...')
 
 
 if __name__ == '__main__':
-    parser = OptionParser()
     log.basicConfig(format='%(levelname)s:%(message)s', level=log.DEBUG)
-
-    X, annotations = load_data()
-    y_arousal = annotations['AROUSAL']
-    y_valence = annotations['VALENCE']
-
-    y_hat_valence = io.load_binary('./resources/annotations/valence_yhat')
-    y_hat_arousal = io.load_binary('./resources/annotations/arousal_yhat')
-    clf_valence = svm.SVR()
-    clf_arousal = svm.SVR()
-    for val in index_for_composition(X, y_valence, y_arousal, 25):
-        clf_valence.fit(val['X_train'], val['y_valence_train'])
-        y_hat_valence_part = clf_valence.predict(val['X_test']).tolist()
-        y_hat_valence = y_hat_valence + y_hat_valence_part
-
-        clf_arousal.fit(val['X_train'], val['y_arousal_train'])
-        y_hat_arousal_part = clf_arousal.predict(val['X_test']).tolist()
-        y_hat_arousal = y_hat_arousal + y_hat_arousal_part
-
-    io.store_binary(y_hat_valence, './resources/annotations/valence_yhat')
-    io.store_binary(y_hat_arousal, './resources/annotations/arousal_yhat')
-
-    print('ada')
-    # X, annotations = load_data()
-    # y_arousal = annotations['AROUSAL']
-    # y_valence = annotations['VALENCE']
-    #
-    #
-    #
-    # X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y_arousal, test_size=0.33, random_state=42)
-    #
-    # clf = SVR()
-    # clf.fit(X_train, y_train)
-    # y_hat = clf.predict(X_test)
-    #
-    # mse = metrics.mean_squared_error(y_test, y_hat)
-    # r2 = metrics.r2_score(y_test, y_hat)
-    # evs = metrics.explained_variance_score(y_test, y_hat)
-    #
-    # print('MSE:', mse)
-    # print('r2:', r2)
-    # print('Explained Variance Score:', evs)
-
-    # MSE: 1.82064778259
-    # r2: -0.0119219966041
-    # Explained
-    # Variance
-    # Score: 0.0
+    train_using_cache()
